@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+Icon[\r]
+
+# 에디터/IDE
+.vscode/
+.idea/
+*.swp
+
+# 로그·임시 파일
+*.log
+*.tmp
+tmp/
+
+# Claude Code 로컬 설정 (개인 설정 — 공유 안 함)
+.claude/settings.local.json
+
+# 민감 파일 안전망 — 예약 확정서 PDF나 토큰이 실수로 들어오는 것 방지
+*.pdf
+*token*
+*.pem
+
+# 세션 논의용 후보 풀 — 로컬 전용, 레포에 안 올림 (확정된 것만 data/trip.json으로)
+data/candidates.json
+
+# 로컬 작업 파일 — 레포엔 웹 산출물만 (기획서·예약 기록·프로젝트 가이드는 로컬 전용)
+docs/
+CLAUDE.md
