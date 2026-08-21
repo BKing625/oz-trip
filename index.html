@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>호주 여행</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="호주 여행">
+<meta name="theme-color" content="#C1440E">
+<link rel="stylesheet" href="./leaflet/leaflet.css">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; background: #faf7f2; }
+  #app { display: flex; flex-direction: column; height: 100%; padding-top: env(safe-area-inset-top); }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #C1440E; color: #fff;
+           padding-top: calc(8px + env(safe-area-inset-top)); margin-top: calc(-1 * env(safe-area-inset-top)); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 700; }
+  header button { border: none; border-radius: 8px; background: rgba(255,255,255,.18); color: #fff; font-size: 13px; padding: 7px 10px; }
+  #syncState { font-size: 12px; opacity: .85; min-width: 14px; text-align: center; }
+  #map { height: 46vh; flex-shrink: 0; z-index: 0; }
+  #tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee; flex-shrink: 0; -webkit-overflow-scrolling: touch; }
+  #tabs button { flex-shrink: 0; border: 1px solid #ddd; background: #fff; color: #333; border-radius: 16px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+  #tabs button.on { color: #fff; border-color: transparent; font-weight: 600; }
+  #list { flex: 1; overflow-y: auto; padding: 8px 12px calc(16px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
+  .day-head { font-size: 13px; font-weight: 700; margin: 10px 2px 6px; color: #555; }
+  .place { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .place .num { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .place .nm { flex: 1; font-size: 14px; }
+  .place .nm small { display: block; color: #999; font-size: 11px; margin-top: 2px; }
+  .place .tm { font-size: 12px; color: #888; flex-shrink: 0; }
+  .empty { color: #aaa; text-align: center; font-size: 13px; padding: 30px 0; }
+  /* edit panel */
+  #editPanel { position: fixed; inset: 0; background: #faf7f2; z-index: 1000; display: none; flex-direction: column; padding: 12px; padding-top: calc(12px + env(safe-area-inset-top)); }
+  #editPanel.show { display: flex; }
+  #editPanel h2 { font-size: 15px; margin: 0 0 8px; }
+  #editPanel textarea { flex: 1; font-family: Menlo, monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; resize: none; }
+  #editPanel .btns { display: flex; gap: 8px; margin-top: 10px; padding-bottom: env(safe-area-inset-bottom); }
+  #editPanel .btns button { flex: 1; border: none; border-radius: 8px; padding: 12px; font-size: 14px; background: #eee; }
+  #editPanel .btns .primary { background: #C1440E; color: #fff; font-weight: 600; }
+  #editMsg { font-size: 12px; color: #c00; min-height: 16px; margin-top: 6px; }
+  /* add-by-tap form */
+  #addForm { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); background: #fff; border-radius: 12px;
+             box-shadow: 0 4px 20px rgba(0,0,0,.2); padding: 12px; z-index: 900; display: none; }
+  #addForm.show { display: block; }
+  #addForm input { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-size: 14px; margin-bottom: 8px; }
+  #addForm .btns { display: flex; gap: 8px; }
+  #addForm .btns button { flex: 1; border: none; border-radius: 8px; padding: 10px; font-size: 14px; background: #eee; }
+  #addForm .btns .primary { background: #C1440E; color: #fff; }
+  #addHint { position: fixed; top: calc(60px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff;
+             font-size: 13px; padding: 8px 14px; border-radius: 20px; z-index: 900; display: none; white-space: nowrap; }
+  #addHint.show { display: block; }
+  /* offline progress */
+  #dlBar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.8); color: #fff;
+           border-radius: 10px; padding: 12px 14px; font-size: 13px; z-index: 950; display: none; }
+  #dlBar.show { display: block; }
+  .num-marker { border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+                border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="tripTitle">호주 여행</h1>
+    <span id="syncState"></span>
+    <button id="btnAdd">📍 추가</button>
+    <button id="btnOffline">⬇︎ 오프라인</button>
+    <button id="btnEdit">✏️ 편집</button>
+  </header>
+  <div id="map"></div>
+  <div id="tabs"></div>
+  <div id="list"></div>
+</div>
+
+<div id="addHint">지도를 탭하면 현재 날짜에 장소가 추가돼요 (다시 📍 누르면 취소)</div>
+<div id="addForm">
+  <input id="addName" placeholder="장소 이름">
+  <input id="addTime" placeholder="시간 (예: 14:00, 선택)">
+  <div class="btns">
+    <button id="addCancel">취소</button>
+    <button id="addOk" class="primary">추가</button>
+  </div>
+</div>
+
+<div id="editPanel">
+  <h2>일정 편집 (JSON)</h2>
+  <textarea id="editArea" spellcheck="false"></textarea>
+  <div id="editMsg"></div>
+  <div class="btns">
+    <button id="editCancel">취소</button>
+    <button id="editReset">기본값</button>
+    <button id="editCopy">복사</button>
+    <button id="editSave" class="primary">저장</button>
+  </div>
+</div>
+
+<div id="dlBar"></div>
+
+<script src="./leaflet/leaflet.js"></script>
+<script>
+'use strict';
+
+// ── 데이터 ─────────────────────────────────────────────
+const STORAGE_KEY = 'aussieTrip.v1';
+const DAY_COLORS = ['#C1440E','#1D7A8C','#5B7F2B','#8C4A9E','#B8860B','#C2185B','#455A8C','#2E7D6B'];
+
+const DEFAULT_TRIP = {
+  title: '호주 여행',
+  seed: 2, // 시드 세대 표식 — 이 값이 없는(=옛 시드) 저장 데이터는 로드 시 폐기하고 새 시드로 교체
+  days: [
+    { date: '2026-10-21', city: '인천 출발', places: [
+      { name: '✈️ JQ48 인천 출발 (T1)', time: '21:50', lat: 37.4489, lng: 126.4505, note: 'B787-8 · 3인 · 탑승구는 당일 확정 · 시드니 다음날 아침 도착' }
+    ]},
+    { date: '2026-10-22', city: '시드니', places: [
+      { name: '🛬 JQ48 시드니 도착 (국제선 T1)', time: '09:05', lat: -33.9365, lng: 151.1655, note: '아침 도착 — 1일차 거의 풀데이 · 공항선(T8) Central → T4 환승 → Kings Cross 하차, 총 ~30분' },
+      { name: '🏨 홀리데이 인 포츠포인트 체크인', time: '15:00', lat: -33.8735, lng: 151.2223, note: '6박(10/28 아웃) · 킹스크로스역 바로 위(100m)❗ · 더블 2개, 3인 OK · 오전에 짐 먼저 맡기기' }
+    ]},
+    { date: '2026-10-23', city: '시드니', places: [] },
+    { date: '2026-10-24', city: '시드니', places: [] },
+    { date: '2026-10-25', city: '시드니', places: [] },
+    { date: '2026-10-26', city: '시드니', places: [] },
+    { date: '2026-10-27', city: '시드니', places: [] },
+    { date: '2026-10-28', city: '시드니→바이런베이', places: [
+      { name: '✈️ JQ416 시드니 출발 (국내선 T2)', time: '18:55', lat: -33.9335, lng: 151.1806, note: 'A320 · 낮엔 시드니 마무리 일정 가능 · 숙소→공항: Kings Cross→Central→T8, ~40분' },
+      { name: '🛬 골드코스트 공항 도착', time: '19:15', lat: -28.1644, lng: 153.5050, note: 'QLD시간 (서머타임인 NSW보다 -1h) · 바이런 이동은 셔틀 사전예약 필수❗' },
+      { name: '🏨 YHA 케이프 바이런 체크인 (야간 도착)', time: '21:30', lat: -28.6441, lng: 153.6150, note: '2박 · Byron St×Middleton St, 메인비치 200m · 공항→바이런: Byron Easy Bus $44~(저녁편 예약 확인 +61 2 6685 7447) 또는 3인 택시 ~A$120·50분 · 심야 체크인 확인❗' }
+    ]},
+    { date: '2026-10-29', city: '바이런베이', places: [] },
+    { date: '2026-10-30', city: '바이런→골드코스트', places: [
+      { name: '🚌 그레이하운드: 바이런 → 서퍼스 (1시간 30분)', time: '10:00', lat: -28.6427, lng: 153.6093, note: 'Butler St 인터체인지 출발, $17~28 · 도착 정류장 3041 SP Blvd = 노보텔 도보 1분❗ · 하루 4~6편, 시간표는 예약 시 확인' },
+      { name: '🏨 노보텔 서퍼스 파라다이스 체크인', time: '14:00', lat: -28.0040, lng: 153.4290, note: '4박 · 3105 Surfers Paradise Blvd (Hanlan St 코너) · Cavill Ave 트램역 도보 3분' }
+    ]},
+    { date: '2026-10-31', city: '골드코스트', places: [] },
+    { date: '2026-11-01', city: '골드코스트', places: [] },
+    { date: '2026-11-02', city: '골드코스트', places: [] },
+    { date: '2026-11-03', city: '골드코스트→브리즈번', places: [
+      { name: '🚋+🚆 트램+기차로 브리즈번 (1인 $1!)', time: '10:00', lat: -28.0021, lng: 153.4283, note: 'Cavill Ave 트램 → Helensvale 환승 → 기차 Central행 · 50센트 요금제(트램 50¢+기차 50¢) · 약 2시간' },
+      { name: '🏨 스카이타워 아파트먼트 체크인', time: '14:00', lat: -27.4735, lng: 153.0290, note: '2박 · 222 Margaret St · 환불불가❗ · 사진 신분증+예약 확정서 필수 · Central역 도보 10분' }
+    ]},
+    { date: '2026-11-04', city: '브리즈번', places: [] },
+    { date: '2026-11-05', city: '브리즈번→서울', places: [
+      { name: '🚆 에어트레인: Central → 국제선터미널', time: '08:00', lat: -27.4649, lng: 153.0262, note: '~25분 · 50센트 미적용, 1인 ~A$22 (온라인 예약 할인) · 스카이타워→Central 도보 10분' },
+      { name: '🛫 브리즈번 공항 국제선 도착', time: '08:40', lat: -27.3860, lng: 153.1190, note: '출발 2시간 반 전 — TRS 세금환급 여유 시간 확보' },
+      { name: '✈️ JQ53 출국', time: '11:10', lat: -27.3860, lng: 153.1190, note: 'B787-8 · ❗12:00에서 당겨진 최신 스케줄 · 인천 19:55 도착 · 마지막 활동일은 11/4' }
+    ]}
+  ]
+};
+
+let trip = loadTrip();
+let currentDay = 'all'; // 'all' | index
+let addMode = false;
+let pendingLatLng = null;
+
+function loadTrip() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) { const t = JSON.parse(raw); if (t && Array.isArray(t.days) && t.seed === DEFAULT_TRIP.seed) return t; }
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_TRIP));
+}
+function saveTrip() { localStorage.setItem(STORAGE_KEY, JSON.stringify(trip)); }
+function dayColor(i) { return DAY_COLORS[i % DAY_COLORS.length]; }
+
+// ── 지도 ─────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false });
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, crossOrigin: 'anonymous',
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+const markerRefs = {}; // "day-idx" -> marker
+
+function numIcon(color, n) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="num-marker" style="background:${color};width:26px;height:26px">${n}</div>`,
+    iconSize: [26, 26], iconAnchor: [13, 13]
+  });
+}
+
+function visibleDays() {
+  return currentDay === 'all' ? trip.days.map((d, i) => i) : [currentDay];
+}
+
+function renderMap() {
+  layer.clearLayers();
+  const pts = [];
+  visibleDays().forEach(di => {
+    const d = trip.days[di], color = dayColor(di);
+    const line = [];
+    d.places.forEach((p, pi) => {
+      const m = L.marker([p.lat, p.lng], { icon: numIcon(color, pi + 1) })
+        .bindPopup(`<b>${esc(p.name)}</b><br>${d.date} ${p.time || ''}${p.note ? '<br>' + esc(p.note) : ''}`);
+      layer.addLayer(m);
+      markerRefs[di + '-' + pi] = m;
+      line.push([p.lat, p.lng]);
+      pts.push([p.lat, p.lng]);
+    });
+    if (line.length > 1) layer.addLayer(L.polyline(line, { color, weight: 3, opacity: .7, dashArray: '6 8' }));
+  });
+  if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.25));
+  else map.setView([-25.27, 133.77], 4); // 호주 전체
+}
+
+// ── 목록/탭 ─────────────────────────────────────────────
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function renderTabs() {
+  const el = document.getElementById('tabs');
+  el.innerHTML = '';
+  const mk = (label, val, color) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (currentDay === val) { b.classList.add('on'); b.style.background = color || '#333'; }
+    b.onclick = () => { currentDay = val; renderAll(); };
+    el.appendChild(b);
+  };
+  mk('전체', 'all');
+  trip.days.forEach((d, i) => mk(`D${i + 1} ${d.city}`, i, dayColor(i)));
+}
+
+function renderList() {
+  const el = document.getElementById('list');
+  el.innerHTML = '';
+  const days = visibleDays();
+  if (!days.length) { el.innerHTML = '<div class="empty">일정이 없어요. ✏️ 편집으로 추가!</div>'; return; }
+  days.forEach(di => {
+    const d = trip.days[di], color = dayColor(di);
+    const h = document.createElement('div');
+    h.className = 'day-head';
+    h.textContent = `Day ${di + 1} · ${d.date} · ${d.city}`;
+    h.style.color = color;
+    el.appendChild(h);
+    if (!d.places.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = '장소 없음'; el.appendChild(e); }
+    d.places.forEach((p, pi) => {
+      const row = document.createElement('div');
+      row.className = 'place';
+      row.innerHTML = `<div class="num" style="background:${color}">${pi + 1}</div>
+        <div class="nm">${esc(p.name)}${p.note ? `<small>${esc(p.note)}</small>` : ''}</div>
+        <div class="tm">${esc(p.time || '')}</div>`;
+      row.onclick = () => {
+        const m = markerRefs[di + '-' + pi];
+        if (m) { map.setView(m.getLatLng(), Math.max(map.getZoom(), 14)); m.openPopup(); }
+      };
+      el.appendChild(row);
+    });
+  });
+}
+
+function renderAll() {
+  document.getElementById('tripTitle').textContent = trip.title || '호주 여행';
+  renderTabs(); renderMap(); renderList();
+}
+
+// ── 지도 탭으로 장소 추가 ─────────────────────────────
+const addHint = document.getElementById('addHint');
+const addForm = document.getElementById('addForm');
+
+document.getElementById('btnAdd').onclick = () => {
+  addMode = !addMode;
+  if (addMode && currentDay === 'all') { currentDay = 0; renderAll(); }
+  addHint.classList.toggle('show', addMode);
+  if (!addMode) addForm.classList.remove('show');
+};
+
+map.on('click', e => {
+  if (!addMode) return;
+  pendingLatLng = e.latlng;
+  document.getElementById('addName').value = '';
+  document.getElementById('addTime').value = '';
+  addForm.classList.add('show');
+  document.getElementById('addName').focus();
+});
+
+document.getElementById('addCancel').onclick = () => addForm.classList.remove('show');
+document.getElementById('addOk').onclick = () => {
+  const name = document.getElementById('addName').value.trim();
+  if (!name || !pendingLatLng) return;
+  const di = currentDay === 'all' ? 0 : currentDay;
+  trip.days[di].places.push({
+    name, time: document.getElementById('addTime').value.trim(),
+    lat: +pendingLatLng.lat.toFixed(5), lng: +pendingLatLng.lng.toFixed(5), note: ''
+  });
+  saveTrip();
+  addForm.classList.remove('show');
+  renderAll();
+};
+
+// ── JSON 편집 ─────────────────────────────────────────
+const panel = document.getElementById('editPanel');
+const area = document.getElementById('editArea');
+const msg = document.getElementById('editMsg');
+
+document.getElementById('btnEdit').onclick = () => {
+  area.value = JSON.stringify(trip, null, 2);
+  msg.textContent = '';
+  panel.classList.add('show');
+};
+document.getElementById('editCancel').onclick = () => panel.classList.remove('show');
+document.getElementById('editReset').onclick = () => { area.value = JSON.stringify(DEFAULT_TRIP, null, 2); };
+document.getElementById('editCopy').onclick = () => {
+  area.select(); document.execCommand('copy');
+  msg.style.color = '#2E7D6B'; msg.textContent = '복사됨';
+};
+document.getElementById('editSave').onclick = () => {
+  try {
+    const t = JSON.parse(area.value);
+    if (!Array.isArray(t.days)) throw new Error('days 배열이 필요해요');
+    t.days.forEach((d, i) => {
+      if (!Array.isArray(d.places)) throw new Error(`Day ${i + 1}에 places 배열이 없어요`);
+      d.places.forEach(p => {
+        if (typeof p.lat !== 'number' || typeof p.lng !== 'number') throw new Error(`"${p.name || '?'}"의 lat/lng는 숫자여야 해요`);
+      });
+    });
+    if (t.seed === undefined) t.seed = DEFAULT_TRIP.seed; // 시드 표식 유지 — 없으면 다음 로드에서 폐기됨
+    trip = t;
+    if (currentDay !== 'all' && currentDay >= trip.days.length) currentDay = 'all';
+    saveTrip();
+    panel.classList.remove('show');
+    renderAll();
+  } catch (e) {
+    msg.style.color = '#c00';
+    msg.textContent = 'JSON 오류: ' + e.message;
+  }
+};
+
+// ── 오프라인 지도 타일 저장 ───────────────────────────
+const TILE_CACHE = 'tiles-v1';
+const dlBar = document.getElementById('dlBar');
+
+function tileXY(lat, lng, z) {
+  const n = 2 ** z;
+  const x = Math.floor((lng + 180) / 360 * n);
+  const latR = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
+  return [Math.min(Math.max(x, 0), n - 1), Math.min(Math.max(y, 0), n - 1)];
+}
+
+function collectTileUrls() {
+  const urls = new Set();
+  const all = trip.days.flatMap(d => d.places);
+  if (!all.length) return urls;
+  const add = (z, x, y) => urls.add(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`);
+
+  // 각 장소 주변: 줌 12~16, 3×3 타일
+  all.forEach(p => {
+    for (let z = 12; z <= 16; z++) {
+      const [cx, cy] = tileXY(p.lat, p.lng, z);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) add(z, cx + dx, cy + dy);
+    }
+  });
+  // 전체 경로 개관: 줌 5~11, 한 줌당 최대 80타일까지만
+  const lats = all.map(p => p.lat), lngs = all.map(p => p.lng);
+  for (let z = 5; z <= 11; z++) {
+    const [x1, y1] = tileXY(Math.max(...lats), Math.min(...lngs), z);
+    const [x2, y2] = tileXY(Math.min(...lats), Math.max(...lngs), z);
+    if ((x2 - x1 + 1) * (y2 - y1 + 1) > 80) continue;
+    for (let x = x1; x <= x2; x++) for (let y = y1; y <= y2; y++) add(z, x, y);
+  }
+  return urls;
+}
+
+document.getElementById('btnOffline').onclick = async () => {
+  if (!('caches' in window)) { alert('이 브라우저는 오프라인 저장을 지원하지 않아요'); return; }
+  const urls = [...collectTileUrls()];
+  if (!urls.length) return;
+  const cache = await caches.open(TILE_CACHE);
+  let done = 0, fail = 0;
+  dlBar.classList.add('show');
+  const worker = async () => {
+    while (urls.length) {
+      const url = urls.pop();
+      try {
+        if (!await cache.match(url)) {
+          let res;
+          try { res = await fetch(url); }
+          catch (e) { res = await fetch(url, { mode: 'no-cors' }); }
+          if (res && (res.ok || res.type === 'opaque')) await cache.put(url, res);
+          else fail++;
+        }
+      } catch (e) { fail++; }
+      done++;
+      if (done % 10 === 0) dlBar.textContent = `오프라인 지도 저장 중… ${done}개 완료`;
+    }
+  };
+  const total = urls.length;
+  dlBar.textContent = `오프라인 지도 저장 중… 0/${total}`;
+  await Promise.all(Array.from({ length: 6 }, worker));
+  dlBar.textContent = fail ? `완료 (${fail}개 실패 — 다시 눌러 재시도 가능)` : `✅ 지도 ${total}개 타일 저장 완료! 이제 오프라인에서도 보여요`;
+  setTimeout(() => dlBar.classList.remove('show'), 4000);
+};
+
+// ── 원격 동기화 ───────────────────────────────────────
+// data/fixed.json(확정 예약) + data/trip.json(일별 일정)을 병합해 렌더.
+// rev가 바뀌었을 때만 교체 — push = 3명 폰에 배포. 오프라인이면 조용히 로컬본 유지.
+function syncBadge(s) {
+  const el = document.getElementById('syncState');
+  if (s === 'ok') { el.textContent = '✓'; setTimeout(() => { el.textContent = ''; }, 3000); }
+  else if (s === 'offline') el.textContent = '⚠︎';
+  else el.textContent = '';
+}
+
+async function syncRemote() {
+  try {
+    const opt = { cache: 'no-cache' };
+    const [fx, tp] = await Promise.all([
+      fetch('./data/fixed.json', opt).then(r => r.json()),
+      fetch('./data/trip.json', opt).then(r => r.json())
+    ]);
+    const rev = 'f' + (fx.rev || 0) + '-t' + (tp.rev || 0);
+    if (trip.remoteRev === rev) { syncBadge(''); return; }
+    const days = tp.days.map(d => ({ date: d.date, city: d.city, places: (d.places || []).slice() }));
+    (fx.entries || []).forEach(en => {
+      const day = days.find(d => d.date === en.date);
+      if (day) day.places.push({ name: en.name, time: en.time || '', lat: en.lat, lng: en.lng, note: en.note || '' });
+    });
+    days.forEach(d => d.places.sort((a, b) => ((a.time || '99:99') <= (b.time || '99:99') ? -1 : 1)));
+    trip = { title: tp.title || '호주 여행', seed: DEFAULT_TRIP.seed, remoteRev: rev, days };
+    saveTrip();
+    if (currentDay !== 'all' && currentDay >= trip.days.length) currentDay = 'all';
+    renderAll();
+    syncBadge('ok');
+  } catch (e) { syncBadge('offline'); }
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncRemote(); });
+
+// ── 서비스 워커 ───────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+renderAll();
+syncRemote();
+</script>
+</body>
+</html>

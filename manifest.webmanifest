@@ -1,0 +1,15 @@
+{
+  "name": "호주 여행",
+  "short_name": "호주여행",
+  "description": "호주 여행 일정을 지도로 보는 오프라인 지원 앱",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf7f2",
+  "theme_color": "#C1440E",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
