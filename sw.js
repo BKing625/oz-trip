@@ -1,7 +1,8 @@
 'use strict';
 
-// 셸 캐시는 버전 올릴 때마다 교체, 타일 캐시(tiles-v1)는 유지
-const VERSION = 'v8';
+// 셸 캐시 버전은 배포 시 Actions가 커밋 sha로 치환한다 → 배포마다 셸 캐시가 새로 생기고 옛것은 삭제됨.
+// (로컬에서는 치환되지 않은 고정 문자열이 그대로 쓰인다.) 타일 캐시(tiles-v1)는 절대 건드리지 않는다.
+const VERSION = 'b__BUILD_SHA__';
 const SHELL_CACHE = 'shell-' + VERSION;
 const TILE_CACHE = 'tiles-v1';
 
@@ -47,10 +48,10 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 개발 중 캐시 무력화: ?v= 가 붙은 요청과 데이터(JSON)는 항상 네트워크 우선, 실패 시에만 캐시
-  if (url.origin === location.origin && (url.searchParams.has('v') || url.pathname.includes('/data/'))) {
+  // 페이지 이동과 데이터(JSON)는 HTTP 캐시까지 우회해 항상 최신을 받는다. 오프라인일 때만 캐시로 폴백.
+  if (url.origin === location.origin && (e.request.mode === 'navigate' || url.pathname.includes('/data/'))) {
     e.respondWith(
-      fetch(e.request).catch(() =>
+      fetch(url.href, { cache: 'no-store' }).catch(() =>
         caches.match(e.request, { ignoreSearch: true }).then(hit =>
           hit || (e.request.mode === 'navigate' ? caches.match('./index.html') : new Response('', { status: 503 }))
         )

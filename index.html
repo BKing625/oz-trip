@@ -12,15 +12,15 @@
 <meta name="apple-mobile-web-app-title" content="호주 여행">
 <meta name="theme-color" content="#C1440E">
 <script>
-/* 개발 중 캐시 무력화 — URL에 ?v=<10초 단위 시각>을 붙여 리다이렉트해서
-   서비스워커·브라우저 캐시를 항상 비껴간다. 배포 안정화되면 DEV_NO_CACHE=false 로 끄면 됨 */
+/* 빌드 버전 — 배포 시 Actions가 커밋 sha/epoch/KST시각을 여기에 주입한다(로컬은 치환 안 됨).
+   캐시 무효화는 커밋 epoch 고정값으로: 같은 배포면 캐시 재사용, 새 배포면 URL이 바뀌어 자동 갱신 */
+var BUILD = { sha: '__BUILD_SHA__', epoch: '__BUILD_EPOCH__', kst: '__BUILD_KST__' };
+BUILD.local = BUILD.sha.indexOf('BUILD_SHA') > -1;
 (function () {
-  var DEV_NO_CACHE = true;
-  if (!DEV_NO_CACHE) return;
-  var slot = String(Math.floor(Date.now() / 10000)); // 10초마다 새 값
+  if (BUILD.local) return; // 로컬 개발 중엔 리다이렉트 안 함
   var p = new URLSearchParams(location.search);
-  if (p.get('v') !== slot) {
-    p.set('v', slot);
+  if (p.get('v') !== BUILD.epoch) {
+    p.set('v', BUILD.epoch);
     location.replace(location.pathname + '?' + p.toString() + location.hash);
   }
 })();
@@ -186,6 +186,26 @@ const DEFAULT_TRIP = {
 let trip = loadTrip();
 let pool = loadPool(); // 후보 풀 (친구들이 보고 고르는 목록)
 let currentDay = 'all'; // 'all' | 'pool' | index
+
+// 딥링크: ?day=3 / #day=3 / #pool / ?day=2026-10-24 — 정적 호스팅이라 경로(/day/3)는 못 쓰고 쿼리·해시로 받는다
+function linkTarget() {
+  const q = new URLSearchParams(location.search);
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  if (location.hash === '#pool' || q.get('tab') === 'pool' || h.get('tab') === 'pool') return 'pool';
+  const v = q.get('day') || h.get('day');
+  if (v) {
+    if (/^\d+$/.test(v)) { const i = +v - 1; if (i >= 0 && i < trip.days.length) return i; }
+    const i = trip.days.findIndex(d => d.date === v);
+    if (i > -1) return i;
+  }
+  return null;
+}
+
+// 현재 보고 있는 탭을 주소에 반영 — 친구에게 "이 날 일정" 링크를 그대로 공유할 수 있게
+function syncHash() {
+  const h = currentDay === 'all' ? '' : (currentDay === 'pool' ? '#pool' : '#day=' + (currentDay + 1));
+  history.replaceState(null, '', location.pathname + location.search + h);
+}
 let addMode = false;
 let pendingLatLng = null;
 
@@ -308,7 +328,7 @@ function renderTabs() {
     const b = document.createElement('button');
     b.textContent = label;
     if (currentDay === val) { b.classList.add('on'); b.style.background = color || '#333'; }
-    b.onclick = () => { currentDay = val; renderAll(); };
+    b.onclick = () => { currentDay = val; syncHash(); renderAll(); };
     el.appendChild(b);
   };
   mk('전체', 'all');
@@ -404,8 +424,19 @@ function renderList() {
 // 배포 확인용 상시 버전 표시 (탭하면 캐시 무시하고 새로고침)
 function renderVerBar() {
   const el = document.getElementById('verBar');
+  const fresh = buildInfo && !BUILD.local && buildInfo.sha !== BUILD.sha;
   el.textContent = versionText();
-  el.onclick = () => location.reload();
+  el.style.color = fresh ? '#C1440E' : '#999';
+  el.style.fontWeight = fresh ? '700' : '400';
+  // 새 배포가 감지되면 URL의 ?v를 최신 커밋 epoch로 바꿔 강제 갱신 (세션당 1회만 자동)
+  el.onclick = () => {
+    if (fresh) { location.replace(location.pathname + '?v=' + buildInfo.epoch); return; }
+    location.reload();
+  };
+  if (fresh && !sessionStorage.getItem('reloadedFor' + buildInfo.sha)) {
+    sessionStorage.setItem('reloadedFor' + buildInfo.sha, '1');
+    location.replace(location.pathname + '?v=' + buildInfo.epoch);
+  }
 }
 
 function renderAll() {
@@ -562,11 +593,13 @@ function syncBadge(s) {
   else el.textContent = '';
 }
 
-// 버전 표기: 데이터 rev(f=확정예약, t=일정) + 배포 빌드(git sha). 편집 패널·복사본에 함께 실린다
-let buildInfo = null;
+// 버전 표기: 데이터 rev(f=확정예약, t=일정, c=후보) + 실행 중인 코드의 커밋(sha·KST 커밋시각)
+let buildInfo = null; // 서버에 배포된 최신 빌드 (실행 중인 BUILD와 다르면 새 배포가 있다는 뜻)
 function versionText() {
   const c = pool && pool.rev != null ? '-c' + pool.rev : '';
-  return `데이터 ${(trip.remoteRev || '-') + c} · 빌드 ${buildInfo ? buildInfo.sha + ' ' + buildInfo.builtAt : '로컬'}`;
+  const b = BUILD.local ? '로컬' : `${BUILD.sha} ${BUILD.kst}`;
+  const stale = buildInfo && !BUILD.local && buildInfo.sha !== BUILD.sha ? ' · 🔄 새 배포 있음(탭)' : '';
+  return `데이터 ${(trip.remoteRev || '-') + c} · 빌드 ${b}${stale}`;
 }
 
 async function syncRemote() {
@@ -611,8 +644,14 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
+const linked = linkTarget();
+if (linked !== null) currentDay = linked;
 renderAll();
-syncRemote();
+syncRemote().then(() => {
+  // 동기화로 날짜가 늘어난 뒤에도 딥링크가 가리키는 탭을 한 번 더 맞춰준다
+  const t = linkTarget();
+  if (t !== null && t !== currentDay) { currentDay = t; renderAll(); }
+});
 </script>
 </body>
 </html>

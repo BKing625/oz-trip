@@ -27,11 +27,14 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html sw.js manifest.webmanifest icons leaflet data _site/
-      - name: 빌드 버전 주입
+      - name: 빌드 버전 주입 (커밋 시각 KST 기준)
         run: |
-          printf '{"sha":"%s","builtAt":"%s"}\n' \
-            "$(git rev-parse --short HEAD)" \
-            "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" > _site/data/build.json
+          SHA=$(git rev-parse --short HEAD)
+          EPOCH=$(git log -1 --format=%ct)
+          KST=$(TZ=Asia/Seoul date -d "@$EPOCH" '+%m/%d %H:%M')
+          sed -i "s/__BUILD_SHA__/$SHA/g; s/__BUILD_EPOCH__/$EPOCH/g; s|__BUILD_KST__|$KST|g" \
+            _site/index.html _site/sw.js
+          printf '{"sha":"%s","epoch":%s,"builtAt":"%s"}\n' "$SHA" "$EPOCH" "$KST" > _site/data/build.json
           cat _site/data/build.json
       - uses: actions/upload-pages-artifact@v3
         with:
