@@ -39,7 +39,16 @@
   #tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee; flex-shrink: 0; -webkit-overflow-scrolling: touch; }
   #tabs button { flex-shrink: 0; border: 1px solid #ddd; background: #fff; color: #333; border-radius: 16px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
   #tabs button.on { color: #fff; border-color: transparent; font-weight: 600; }
-  #list { flex: 1; overflow-y: auto; padding: 8px 12px calc(16px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
+  #list { flex: 1; overflow-y: auto; padding: 8px 12px 16px; -webkit-overflow-scrolling: touch; }
+  #verBar { flex-shrink: 0; font-size: 10px; color: #999; text-align: center; background: #fff; border-top: 1px solid #eee;
+            padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); }
+  /* 후보 선택 */
+  .pool-bar { display: flex; align-items: center; gap: 6px; background: #fff; border-radius: 8px; padding: 8px 10px; margin: 4px 0 6px; }
+  .pool-bar .cnt { flex: 1; font-size: 12px; color: #555; font-weight: 600; }
+  .pool-bar button { border: none; border-radius: 6px; padding: 6px 10px; font-size: 12px; background: #eee; color: #333; }
+  .pool-bar button.primary { background: #C1440E; color: #fff; font-weight: 600; }
+  .place .chk { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
+  .place.picked { outline: 2px solid #2E7D6B; }
   .day-head { font-size: 13px; font-weight: 700; margin: 10px 2px 6px; color: #555; }
   .place { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
   .place .num { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -89,6 +98,7 @@
   <div id="map"></div>
   <div id="tabs"></div>
   <div id="list"></div>
+  <div id="verBar"></div>
 </div>
 
 <div id="addHint">지도를 탭하면 현재 날짜에 장소가 추가돼요 (다시 📍 누르면 취소)</div>
@@ -189,6 +199,38 @@ function loadTrip() {
 function saveTrip() { localStorage.setItem(STORAGE_KEY, JSON.stringify(trip)); }
 function loadPool() { try { return JSON.parse(localStorage.getItem(POOL_KEY) || 'null'); } catch (e) { return null; } }
 function poolList() { return (pool && Array.isArray(pool.candidates)) ? pool.candidates : []; }
+
+// 후보 선택(체크박스) — 각자 폰에 저장되고, 복사 버튼으로 카톡에 공유
+const PICK_KEY = 'aussiePick.v1';
+let picks = new Set();
+try { picks = new Set(JSON.parse(localStorage.getItem(PICK_KEY) || '[]')); } catch (e) {}
+function savePicks() { localStorage.setItem(PICK_KEY, JSON.stringify([...picks])); }
+
+function pickText() {
+  const cs = poolList().filter(c => picks.has(c.id));
+  if (!cs.length) return '';
+  const lines = [`🗂 호주 여행 후보 ${cs.length}개 골랐어요`];
+  let city = null;
+  cs.forEach(c => {
+    if (c.city !== city) { city = c.city; lines.push(`\n[${city}]`); }
+    lines.push(`${c.id}. ${c.name}`);
+  });
+  lines.push(`\n(${versionText()})`);
+  return lines.join('\n');
+}
+
+function copyText(t) {
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select(); ta.setSelectionRange(0, t.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  if (!ok && navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {});
+  return true;
+}
 function dayColor(i) { return DAY_COLORS[i % DAY_COLORS.length]; }
 
 // ── 지도 ─────────────────────────────────────────────
@@ -217,9 +259,10 @@ function visibleDays() {
 
 function poolIcon(c) {
   const color = (REC[c.rec] || REC['괜찮음']).color;
+  const on = picks.has(c.id);
   return L.divIcon({
     className: '',
-    html: `<div class="num-marker" style="background:${color};width:24px;height:24px;font-size:11px">${c.id}</div>`,
+    html: `<div class="num-marker" style="background:${color};width:24px;height:24px;font-size:11px${on ? ';border-color:#2E7D6B;border-width:3px' : ''}">${on ? '✓' : c.id}</div>`,
     iconSize: [24, 24], iconAnchor: [12, 12]
   });
 }
@@ -276,9 +319,23 @@ function renderTabs() {
 // 후보 목록 — 도시별로 묶어서, 번호(id)로 지목할 수 있게 표시
 function renderPoolList(el) {
   const cs = poolList();
+  const bar = document.createElement('div');
+  bar.className = 'pool-bar';
+  bar.innerHTML = `<span class="cnt">✓ ${picks.size}개 선택</span>
+    <button id="poolClear">해제</button><button id="poolCopy" class="primary">📋 복사</button>`;
+  el.appendChild(bar);
+  bar.querySelector('#poolClear').onclick = () => { picks.clear(); savePicks(); renderMap(); renderList(); };
+  bar.querySelector('#poolCopy').onclick = () => {
+    const t = pickText();
+    const cnt = bar.querySelector('.cnt');
+    if (!t) { cnt.textContent = '먼저 체크해주세요'; return; }
+    copyText(t);
+    cnt.textContent = `복사됨! ${picks.size}개 — 카톡에 붙여넣기`;
+  };
+
   const info = document.createElement('div');
   info.className = 'pool-info';
-  info.innerHTML = `🔥국룰 &nbsp;⭐강추 &nbsp;○괜찮음 &nbsp;⚠️비추천 &nbsp;— 번호로 골라서 알려주세요`;
+  info.innerHTML = `🔥국룰 &nbsp;⭐강추 &nbsp;○괜찮음 &nbsp;⚠️비추천 &nbsp;— 가고 싶은 곳 체크 후 복사`;
   el.appendChild(info);
   let city = null;
   cs.forEach(c => {
@@ -291,10 +348,22 @@ function renderPoolList(el) {
     }
     const r = REC[c.rec] || REC['괜찮음'];
     const row = document.createElement('div');
-    row.className = 'place';
+    row.className = 'place' + (picks.has(c.id) ? ' picked' : '');
     if (c.rec === '비추천') row.style.opacity = '.6';
-    row.innerHTML = `<div class="num" style="background:${r.color};font-size:11px">${c.id}</div>
+    row.innerHTML = `<input type="checkbox" class="chk"${picks.has(c.id) ? ' checked' : ''}>
+      <div class="num" style="background:${r.color};font-size:11px">${c.id}</div>
       <div class="nm">${r.mark} ${esc(c.name)}<small>${esc(c.cat)} · ${esc(c.note)}</small></div>`;
+    const chk = row.querySelector('.chk');
+    chk.onclick = ev => {
+      ev.stopPropagation();
+      if (chk.checked) picks.add(c.id); else picks.delete(c.id);
+      savePicks();
+      row.classList.toggle('picked', chk.checked);
+      const cnt = el.querySelector('.pool-bar .cnt');
+      if (cnt) cnt.textContent = `✓ ${picks.size}개 선택`;
+      const m = markerRefs['p-' + c.id];
+      if (m) m.setIcon(poolIcon(c));
+    };
     row.onclick = () => {
       const m = markerRefs['p-' + c.id];
       if (m) { map.setView(m.getLatLng(), Math.max(map.getZoom(), 13)); m.openPopup(); }
@@ -332,9 +401,16 @@ function renderList() {
   });
 }
 
+// 배포 확인용 상시 버전 표시 (탭하면 캐시 무시하고 새로고침)
+function renderVerBar() {
+  const el = document.getElementById('verBar');
+  el.textContent = versionText();
+  el.onclick = () => location.reload();
+}
+
 function renderAll() {
   document.getElementById('tripTitle').textContent = trip.title || '호주 여행';
-  renderTabs(); renderMap(); renderList();
+  renderTabs(); renderMap(); renderList(); renderVerBar();
 }
 
 // ── 지도 탭으로 장소 추가 ─────────────────────────────
@@ -508,10 +584,11 @@ async function syncRemote() {
       localStorage.setItem(POOL_KEY, JSON.stringify(cd));
       renderTabs(); if (currentDay === 'pool') { renderMap(); renderList(); }
     }
+    renderVerBar();
     const rev = 'f' + (fx.rev || 0) + '-t' + (tp.rev || 0);
     if (trip.remoteRev === rev) {
       if (bd && trip.build !== bd.sha) { trip.build = bd.sha; saveTrip(); }
-      syncBadge(''); return;
+      renderVerBar(); syncBadge(''); return;
     }
     const days = tp.days.map(d => ({ date: d.date, city: d.city, places: (d.places || []).slice() }));
     (fx.entries || []).forEach(en => {
