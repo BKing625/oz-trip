@@ -48,6 +48,7 @@ BUILD.local = BUILD.sha.indexOf('BUILD_SHA') > -1;
   .pool-bar button { border: none; border-radius: 6px; padding: 6px 10px; font-size: 12px; background: #eee; color: #333; }
   .pool-bar button.primary { background: #C1440E; color: #fff; font-weight: 600; }
   .place .chk { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
+  .place .lnk { border: none; background: transparent; font-size: 15px; padding: 4px; flex-shrink: 0; opacity: .55; }
   .place.picked { outline: 2px solid #2E7D6B; }
   .day-head { font-size: 13px; font-weight: 700; margin: 10px 2px 6px; color: #555; }
   .place { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
@@ -188,9 +189,34 @@ let pool = loadPool(); // 후보 풀 (친구들이 보고 고르는 목록)
 let currentDay = 'all'; // 'all' | 'pool' | index
 
 // 딥링크: ?day=3 / #day=3 / #pool / ?day=2026-10-24 — 정적 호스팅이라 경로(/day/3)는 못 쓰고 쿼리·해시로 받는다
+// 후보 개별 링크: ?c=52 / #c=52 — 후보 탭을 열고 그 번호로 지도·목록을 포커스한다
+function linkCandidate() {
+  const q = new URLSearchParams(location.search);
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const v = q.get('c') || h.get('c');
+  return v && /^\d+$/.test(v) ? +v : null;
+}
+
+// 공유용 주소 — 캐시 무효화용 ?v=(커밋 epoch)를 그대로 달고 나가므로 링크를 받은 사람도 최신 버전을 연다
+function candidateUrl(id) {
+  const v = BUILD.local ? '' : '?v=' + BUILD.epoch;
+  return location.origin + location.pathname + v + '#c=' + id;
+}
+
+function focusCandidate(id) {
+  const m = markerRefs['p-' + id];
+  if (!m) return false;
+  map.setView(m.getLatLng(), Math.max(map.getZoom(), 13));
+  m.openPopup();
+  const row = document.querySelector('[data-cid="' + id + '"]');
+  if (row) { row.scrollIntoView({ block: 'center' }); row.style.background = '#FFF3E6'; }
+  return true;
+}
+
 function linkTarget() {
   const q = new URLSearchParams(location.search);
   const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  if (linkCandidate() !== null) return 'pool';
   if (location.hash === '#pool' || q.get('tab') === 'pool' || h.get('tab') === 'pool') return 'pool';
   const v = q.get('day') || h.get('day');
   if (v) {
@@ -369,10 +395,18 @@ function renderPoolList(el) {
     const r = REC[c.rec] || REC['괜찮음'];
     const row = document.createElement('div');
     row.className = 'place' + (picks.has(c.id) ? ' picked' : '');
+    row.dataset.cid = c.id;
     if (c.rec === '비추천') row.style.opacity = '.6';
     row.innerHTML = `<input type="checkbox" class="chk"${picks.has(c.id) ? ' checked' : ''}>
       <div class="num" style="background:${r.color};font-size:11px">${c.id}</div>
-      <div class="nm">${r.mark} ${esc(c.name)}<small>${esc(c.cat)} · ${esc(c.note)}</small></div>`;
+      <div class="nm">${r.mark} ${esc(c.name)}<small>${esc(c.cat)} · ${esc(c.note)}</small></div>
+      <button class="lnk" title="링크 복사">🔗</button>`;
+    row.querySelector('.lnk').onclick = ev => {
+      ev.stopPropagation();
+      copyText(`${r.mark} ${c.name}\n${candidateUrl(c.id)}`);
+      const cnt = el.querySelector('.pool-bar .cnt');
+      if (cnt) cnt.textContent = `${c.id}번 링크 복사됨`;
+    };
     const chk = row.querySelector('.chk');
     chk.onclick = ev => {
       ev.stopPropagation();
@@ -647,10 +681,13 @@ if ('serviceWorker' in navigator) {
 const linked = linkTarget();
 if (linked !== null) currentDay = linked;
 renderAll();
+if (linkCandidate() !== null) focusCandidate(linkCandidate());
 syncRemote().then(() => {
-  // 동기화로 날짜가 늘어난 뒤에도 딥링크가 가리키는 탭을 한 번 더 맞춰준다
+  // 동기화로 날짜·후보가 늘어난 뒤에도 딥링크가 가리키는 곳을 한 번 더 맞춰준다
   const t = linkTarget();
   if (t !== null && t !== currentDay) { currentDay = t; renderAll(); }
+  const c = linkCandidate();
+  if (c !== null) focusCandidate(c);
 });
 </script>
 </body>
