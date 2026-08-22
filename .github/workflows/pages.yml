@@ -27,6 +27,12 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html sw.js manifest.webmanifest icons leaflet data _site/
+      - name: 빌드 버전 주입
+        run: |
+          printf '{"sha":"%s","builtAt":"%s"}\n' \
+            "$(git rev-parse --short HEAD)" \
+            "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" > _site/data/build.json
+          cat _site/data/build.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

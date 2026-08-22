@@ -37,6 +37,7 @@
   #editPanel { position: fixed; inset: 0; background: #faf7f2; z-index: 1000; display: none; flex-direction: column; padding: 12px; padding-top: calc(12px + env(safe-area-inset-top)); }
   #editPanel.show { display: flex; }
   #editPanel h2 { font-size: 15px; margin: 0 0 8px; }
+  #verInfo { font-size: 11px; font-weight: 400; color: #999; margin-left: 6px; }
   #editPanel textarea { flex: 1; font-family: Menlo, monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; resize: none; }
   #editPanel .btns { display: flex; gap: 8px; margin-top: 10px; padding-bottom: env(safe-area-inset-bottom); }
   #editPanel .btns button { flex: 1; border: none; border-radius: 8px; padding: 12px; font-size: 14px; background: #eee; }
@@ -86,7 +87,7 @@
 </div>
 
 <div id="editPanel">
-  <h2>일정 편집 (JSON)</h2>
+  <h2>일정 편집 (JSON) <span id="verInfo"></span></h2>
   <textarea id="editArea" spellcheck="false"></textarea>
   <div id="editMsg"></div>
   <div class="btns">
@@ -298,6 +299,7 @@ const msg = document.getElementById('editMsg');
 
 document.getElementById('btnEdit').onclick = () => {
   area.value = JSON.stringify(trip, null, 2);
+  document.getElementById('verInfo').textContent = versionText();
   msg.textContent = '';
   panel.classList.add('show');
 };
@@ -305,7 +307,7 @@ document.getElementById('editCancel').onclick = () => panel.classList.remove('sh
 document.getElementById('editReset').onclick = () => { area.value = JSON.stringify(DEFAULT_TRIP, null, 2); };
 document.getElementById('editCopy').onclick = () => {
   area.select(); document.execCommand('copy');
-  msg.style.color = '#2E7D6B'; msg.textContent = '복사됨';
+  msg.style.color = '#2E7D6B'; msg.textContent = '복사됨 — ' + versionText();
 };
 document.getElementById('editSave').onclick = () => {
   try {
@@ -405,22 +407,33 @@ function syncBadge(s) {
   else el.textContent = '';
 }
 
+// 버전 표기: 데이터 rev(f=확정예약, t=일정) + 배포 빌드(git sha). 편집 패널·복사본에 함께 실린다
+let buildInfo = null;
+function versionText() {
+  return `데이터 ${trip.remoteRev || '-'} · 빌드 ${buildInfo ? buildInfo.sha + ' ' + buildInfo.builtAt : '로컬'}`;
+}
+
 async function syncRemote() {
   try {
     const opt = { cache: 'no-cache' };
-    const [fx, tp] = await Promise.all([
+    const [fx, tp, bd] = await Promise.all([
       fetch('./data/fixed.json', opt).then(r => r.json()),
-      fetch('./data/trip.json', opt).then(r => r.json())
+      fetch('./data/trip.json', opt).then(r => r.json()),
+      fetch('./data/build.json', opt).then(r => r.ok ? r.json() : null).catch(() => null)
     ]);
+    buildInfo = bd;
     const rev = 'f' + (fx.rev || 0) + '-t' + (tp.rev || 0);
-    if (trip.remoteRev === rev) { syncBadge(''); return; }
+    if (trip.remoteRev === rev) {
+      if (bd && trip.build !== bd.sha) { trip.build = bd.sha; saveTrip(); }
+      syncBadge(''); return;
+    }
     const days = tp.days.map(d => ({ date: d.date, city: d.city, places: (d.places || []).slice() }));
     (fx.entries || []).forEach(en => {
       const day = days.find(d => d.date === en.date);
       if (day) day.places.push({ name: en.name, time: en.time || '', lat: en.lat, lng: en.lng, note: en.note || '' });
     });
     days.forEach(d => d.places.sort((a, b) => ((a.time || '99:99') <= (b.time || '99:99') ? -1 : 1)));
-    trip = { title: tp.title || '호주 여행', seed: DEFAULT_TRIP.seed, remoteRev: rev, days };
+    trip = { title: tp.title || '호주 여행', seed: DEFAULT_TRIP.seed, remoteRev: rev, build: bd ? bd.sha : undefined, days };
     saveTrip();
     if (currentDay !== 'all' && currentDay >= trip.days.length) currentDay = 'all';
     renderAll();
