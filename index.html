@@ -49,6 +49,9 @@ BUILD.local = BUILD.sha.indexOf('BUILD_SHA') > -1;
   .place .nm { flex: 1; font-size: 14px; }
   .place .nm small { display: block; color: #999; font-size: 11px; margin-top: 2px; line-height: 1.45; }
   .pool-info { font-size: 11px; color: #888; background: #fff; border-radius: 8px; padding: 8px 10px; margin: 4px 0 2px; }
+  .pool-filters { display: flex; gap: 6px; margin: 0 0 4px; }
+  .pool-filters button { flex: 1; border: 1px solid #ddd; background: #fff; color: #555; border-radius: 14px; padding: 6px 4px; font-size: 12px; }
+  .pool-filters button.on { background: #333; color: #fff; border-color: transparent; font-weight: 600; }
   .place .tm { font-size: 12px; color: #888; flex-shrink: 0; }
   .empty { color: #aaa; text-align: center; font-size: 13px; padding: 30px 0; }
   /* edit panel */
@@ -237,9 +240,16 @@ function loadTrip() {
 function saveTrip() { localStorage.setItem(STORAGE_KEY, JSON.stringify(trip)); }
 function loadPool() { try { return JSON.parse(localStorage.getItem(POOL_KEY) || 'null'); } catch (e) { return null; } }
 function poolList() { return (pool && Array.isArray(pool.candidates)) ? pool.candidates : []; }
+function filteredPool() {
+  const cs = poolList();
+  if (poolFilter === 'picked') return cs.filter(c => picks.has(c.id));
+  if (poolFilter !== 'all') return cs.filter(c => c.rec === poolFilter);
+  return cs;
+}
 
 // 후보 선택(체크박스) — 각자 폰에 저장되고, 복사 버튼으로 카톡에 공유
 const PICK_KEY = 'aussiePick.v1';
+let poolFilter = 'all'; // 'all' | '국룰' | '강추' | 'picked'
 let picks = new Set();
 try { picks = new Set(JSON.parse(localStorage.getItem(PICK_KEY) || '[]')); } catch (e) {}
 function savePicks() { localStorage.setItem(PICK_KEY, JSON.stringify([...picks])); }
@@ -257,17 +267,28 @@ function pickText() {
   return lines.join('\n');
 }
 
-function copyText(t) {
+// 아이폰 사파리에선 숨긴 textarea + execCommand 조합이 실패하는 경우가 있어 Clipboard API를 우선 쓴다
+function legacyCopy(t) {
   const ta = document.createElement('textarea');
   ta.value = t;
-  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  ta.readOnly = false;
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0.01;font-size:16px';
   document.body.appendChild(ta);
-  ta.select(); ta.setSelectionRange(0, t.length);
+  ta.focus(); ta.select();
+  try { ta.setSelectionRange(0, t.length); } catch (e) {}
   let ok = false;
   try { ok = document.execCommand('copy'); } catch (e) {}
   document.body.removeChild(ta);
-  if (!ok && navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {});
-  return true;
+  return ok;
+}
+
+function copyText(t, onDone) {
+  const done = ok => { if (onDone) onDone(ok); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => done(true)).catch(() => done(legacyCopy(t)));
+  } else {
+    done(legacyCopy(t));
+  }
 }
 function dayColor(i) { return DAY_COLORS[i % DAY_COLORS.length]; }
 
@@ -309,7 +330,7 @@ function renderMap() {
   layer.clearLayers();
   const pts = [];
   if (currentDay === 'pool') {
-    poolList().forEach(c => {
+    filteredPool().forEach(c => {
       const m = L.marker([c.lat, c.lng], { icon: poolIcon(c) })
         .bindPopup(`<b>${(REC[c.rec] || {}).mark || ''} ${esc(c.name)}</b><br><small>${esc(c.city)} · ${esc(c.cat)}</small><br>${esc(c.note)}`);
       layer.addLayer(m);
@@ -356,7 +377,7 @@ function renderTabs() {
 
 // 후보 목록 — 도시별로 묶어서, 번호(id)로 지목할 수 있게 표시
 function renderPoolList(el) {
-  const cs = poolList();
+  const cs = filteredPool();
   const bar = document.createElement('div');
   bar.className = 'pool-bar';
   bar.innerHTML = `<span class="cnt">✓ ${picks.size}개 선택</span>
@@ -367,13 +388,29 @@ function renderPoolList(el) {
     const t = pickText();
     const cnt = bar.querySelector('.cnt');
     if (!t) { cnt.textContent = '먼저 체크해주세요'; return; }
-    copyText(t);
-    cnt.textContent = `복사됨! ${picks.size}개 — 카톡에 붙여넣기`;
+    const n = picks.size;
+    copyText(t, ok => {
+      cnt.textContent = ok ? `복사됨! ${n}개 — 카톡에 붙여넣기` : '복사 실패 — 편집 화면에서 직접 복사하세요';
+    });
   };
+
+  // 90개를 폰에서 다 훑기 힘드니 추천도·선택으로 걸러 본다
+  const fb = document.createElement('div');
+  fb.className = 'pool-filters';
+  [['전체', 'all'], ['🔥국룰', '국룰'], ['⭐강추', '강추'], [`✓선택 ${picks.size}`, 'picked']].forEach(([label, val]) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (poolFilter === val) b.classList.add('on');
+    b.onclick = () => { poolFilter = val; renderMap(); renderList(); };
+    fb.appendChild(b);
+  });
+  el.appendChild(fb);
 
   const info = document.createElement('div');
   info.className = 'pool-info';
-  info.innerHTML = `🔥국룰 &nbsp;⭐강추 &nbsp;○괜찮음 &nbsp;⚠️비추천 &nbsp;— 가고 싶은 곳 체크 후 복사`;
+  info.innerHTML = cs.length
+    ? `🔥국룰 &nbsp;⭐강추 &nbsp;○괜찮음 &nbsp;⚠️비추천 &nbsp;— 가고 싶은 곳 체크 후 복사 (${cs.length}개 표시)`
+    : '해당하는 후보가 없어요';
   el.appendChild(info);
   let city = null;
   cs.forEach(c => {
@@ -395,9 +432,10 @@ function renderPoolList(el) {
       <button class="lnk" title="링크 복사">🔗</button>`;
     row.querySelector('.lnk').onclick = ev => {
       ev.stopPropagation();
-      copyText(`${r.mark} ${c.name}\n${candidateUrl(c.id)}`);
       const cnt = el.querySelector('.pool-bar .cnt');
-      if (cnt) cnt.textContent = `${c.id}번 링크 복사됨`;
+      copyText(`${r.mark} ${c.name}\n${candidateUrl(c.id)}`, ok => {
+        if (cnt) cnt.textContent = ok ? `${c.id}번 링크 복사됨` : `${c.id}번 링크 복사 실패`;
+      });
     };
     const chk = row.querySelector('.chk');
     chk.onclick = ev => {
