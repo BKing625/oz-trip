@@ -30,7 +30,8 @@
   .place { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
   .place .num { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .place .nm { flex: 1; font-size: 14px; }
-  .place .nm small { display: block; color: #999; font-size: 11px; margin-top: 2px; }
+  .place .nm small { display: block; color: #999; font-size: 11px; margin-top: 2px; line-height: 1.45; }
+  .pool-info { font-size: 11px; color: #888; background: #fff; border-radius: 8px; padding: 8px 10px; margin: 4px 0 2px; }
   .place .tm { font-size: 12px; color: #888; flex-shrink: 0; }
   .empty { color: #aaa; text-align: center; font-size: 13px; padding: 30px 0; }
   /* edit panel */
@@ -106,7 +107,15 @@
 
 // ── 데이터 ─────────────────────────────────────────────
 const STORAGE_KEY = 'aussieTrip.v1';
+const POOL_KEY = 'aussiePool.v1';
 const DAY_COLORS = ['#C1440E','#1D7A8C','#5B7F2B','#8C4A9E','#B8860B','#C2185B','#455A8C','#2E7D6B'];
+// 후보 추천도 — 🔥국룰(다들 가는 클래식) ⭐강추(우리 취향) ○괜찮음 ⚠️비추천
+const REC = {
+  '국룰':   { color: '#C1440E', mark: '🔥' },
+  '강추':   { color: '#1D7A8C', mark: '⭐' },
+  '괜찮음': { color: '#8A8A8A', mark: '○' },
+  '비추천': { color: '#C4C4C4', mark: '⚠️' }
+};
 
 const DEFAULT_TRIP = {
   title: '호주 여행',
@@ -151,7 +160,8 @@ const DEFAULT_TRIP = {
 };
 
 let trip = loadTrip();
-let currentDay = 'all'; // 'all' | index
+let pool = loadPool(); // 후보 풀 (친구들이 보고 고르는 목록)
+let currentDay = 'all'; // 'all' | 'pool' | index
 let addMode = false;
 let pendingLatLng = null;
 
@@ -163,6 +173,8 @@ function loadTrip() {
   return JSON.parse(JSON.stringify(DEFAULT_TRIP));
 }
 function saveTrip() { localStorage.setItem(STORAGE_KEY, JSON.stringify(trip)); }
+function loadPool() { try { return JSON.parse(localStorage.getItem(POOL_KEY) || 'null'); } catch (e) { return null; } }
+function poolList() { return (pool && Array.isArray(pool.candidates)) ? pool.candidates : []; }
 function dayColor(i) { return DAY_COLORS[i % DAY_COLORS.length]; }
 
 // ── 지도 ─────────────────────────────────────────────
@@ -185,12 +197,33 @@ function numIcon(color, n) {
 }
 
 function visibleDays() {
+  if (currentDay === 'pool') return [];
   return currentDay === 'all' ? trip.days.map((d, i) => i) : [currentDay];
+}
+
+function poolIcon(c) {
+  const color = (REC[c.rec] || REC['괜찮음']).color;
+  return L.divIcon({
+    className: '',
+    html: `<div class="num-marker" style="background:${color};width:24px;height:24px;font-size:11px">${c.id}</div>`,
+    iconSize: [24, 24], iconAnchor: [12, 12]
+  });
 }
 
 function renderMap() {
   layer.clearLayers();
   const pts = [];
+  if (currentDay === 'pool') {
+    poolList().forEach(c => {
+      const m = L.marker([c.lat, c.lng], { icon: poolIcon(c) })
+        .bindPopup(`<b>${(REC[c.rec] || {}).mark || ''} ${esc(c.name)}</b><br><small>${esc(c.city)} · ${esc(c.cat)}</small><br>${esc(c.note)}`);
+      layer.addLayer(m);
+      markerRefs['p-' + c.id] = m;
+      pts.push([c.lat, c.lng]);
+    });
+    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.2));
+    return;
+  }
   visibleDays().forEach(di => {
     const d = trip.days[di], color = dayColor(di);
     const line = [];
@@ -222,12 +255,44 @@ function renderTabs() {
     el.appendChild(b);
   };
   mk('전체', 'all');
+  if (poolList().length) mk(`🗂 후보 ${poolList().length}`, 'pool', '#444');
   trip.days.forEach((d, i) => mk(`D${i + 1} ${d.city}`, i, dayColor(i)));
+}
+
+// 후보 목록 — 도시별로 묶어서, 번호(id)로 지목할 수 있게 표시
+function renderPoolList(el) {
+  const cs = poolList();
+  const info = document.createElement('div');
+  info.className = 'pool-info';
+  info.innerHTML = `🔥국룰 &nbsp;⭐강추 &nbsp;○괜찮음 &nbsp;⚠️비추천 &nbsp;— 번호로 골라서 알려주세요`;
+  el.appendChild(info);
+  let city = null;
+  cs.forEach(c => {
+    if (c.city !== city) {
+      city = c.city;
+      const h = document.createElement('div');
+      h.className = 'day-head';
+      h.textContent = `${city} (${cs.filter(x => x.city === city).length})`;
+      el.appendChild(h);
+    }
+    const r = REC[c.rec] || REC['괜찮음'];
+    const row = document.createElement('div');
+    row.className = 'place';
+    if (c.rec === '비추천') row.style.opacity = '.6';
+    row.innerHTML = `<div class="num" style="background:${r.color};font-size:11px">${c.id}</div>
+      <div class="nm">${r.mark} ${esc(c.name)}<small>${esc(c.cat)} · ${esc(c.note)}</small></div>`;
+    row.onclick = () => {
+      const m = markerRefs['p-' + c.id];
+      if (m) { map.setView(m.getLatLng(), Math.max(map.getZoom(), 13)); m.openPopup(); }
+    };
+    el.appendChild(row);
+  });
 }
 
 function renderList() {
   const el = document.getElementById('list');
   el.innerHTML = '';
+  if (currentDay === 'pool') { renderPoolList(el); return; }
   const days = visibleDays();
   if (!days.length) { el.innerHTML = '<div class="empty">일정이 없어요. ✏️ 편집으로 추가!</div>'; return; }
   days.forEach(di => {
@@ -410,18 +475,25 @@ function syncBadge(s) {
 // 버전 표기: 데이터 rev(f=확정예약, t=일정) + 배포 빌드(git sha). 편집 패널·복사본에 함께 실린다
 let buildInfo = null;
 function versionText() {
-  return `데이터 ${trip.remoteRev || '-'} · 빌드 ${buildInfo ? buildInfo.sha + ' ' + buildInfo.builtAt : '로컬'}`;
+  const c = pool && pool.rev != null ? '-c' + pool.rev : '';
+  return `데이터 ${(trip.remoteRev || '-') + c} · 빌드 ${buildInfo ? buildInfo.sha + ' ' + buildInfo.builtAt : '로컬'}`;
 }
 
 async function syncRemote() {
   try {
     const opt = { cache: 'no-cache' };
-    const [fx, tp, bd] = await Promise.all([
+    const [fx, tp, bd, cd] = await Promise.all([
       fetch('./data/fixed.json', opt).then(r => r.json()),
       fetch('./data/trip.json', opt).then(r => r.json()),
-      fetch('./data/build.json', opt).then(r => r.ok ? r.json() : null).catch(() => null)
+      fetch('./data/build.json', opt).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('./data/candidates.json', opt).then(r => r.ok ? r.json() : null).catch(() => null)
     ]);
     buildInfo = bd;
+    if (cd && Array.isArray(cd.candidates) && (!pool || pool.rev !== cd.rev)) {
+      pool = cd;
+      localStorage.setItem(POOL_KEY, JSON.stringify(cd));
+      renderTabs(); if (currentDay === 'pool') { renderMap(); renderList(); }
+    }
     const rev = 'f' + (fx.rev || 0) + '-t' + (tp.rev || 0);
     if (trip.remoteRev === rev) {
       if (bd && trip.build !== bd.sha) { trip.build = bd.sha; saveTrip(); }

@@ -1,7 +1,7 @@
 'use strict';
 
 // 셸 캐시는 버전 올릴 때마다 교체, 타일 캐시(tiles-v1)는 유지
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL_CACHE = 'shell-' + VERSION;
 const TILE_CACHE = 'tiles-v1';
 
