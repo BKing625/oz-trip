@@ -11,6 +11,20 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="호주 여행">
 <meta name="theme-color" content="#C1440E">
+<script>
+/* 개발 중 캐시 무력화 — URL에 ?v=<10초 단위 시각>을 붙여 리다이렉트해서
+   서비스워커·브라우저 캐시를 항상 비껴간다. 배포 안정화되면 DEV_NO_CACHE=false 로 끄면 됨 */
+(function () {
+  var DEV_NO_CACHE = true;
+  if (!DEV_NO_CACHE) return;
+  var slot = String(Math.floor(Date.now() / 10000)); // 10초마다 새 값
+  var p = new URLSearchParams(location.search);
+  if (p.get('v') !== slot) {
+    p.set('v', slot);
+    location.replace(location.pathname + '?' + p.toString() + location.hash);
+  }
+})();
+</script>
 <link rel="stylesheet" href="./leaflet/leaflet.css">
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

@@ -1,7 +1,7 @@
 'use strict';
 
 // 셸 캐시는 버전 올릴 때마다 교체, 타일 캐시(tiles-v1)는 유지
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL_CACHE = 'shell-' + VERSION;
 const TILE_CACHE = 'tiles-v1';
 
@@ -43,6 +43,18 @@ self.addEventListener('fetch', e => {
         if (res && (res.ok || res.type === 'opaque')) cache.put(e.request.url, res.clone());
         return res;
       }).catch(() => new Response('', { status: 503 }))
+    );
+    return;
+  }
+
+  // 개발 중 캐시 무력화: ?v= 가 붙은 요청과 데이터(JSON)는 항상 네트워크 우선, 실패 시에만 캐시
+  if (url.origin === location.origin && (url.searchParams.has('v') || url.pathname.includes('/data/'))) {
+    e.respondWith(
+      fetch(e.request).catch(() =>
+        caches.match(e.request, { ignoreSearch: true }).then(hit =>
+          hit || (e.request.mode === 'navigate' ? caches.match('./index.html') : new Response('', { status: 503 }))
+        )
+      )
     );
     return;
   }
