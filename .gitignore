@@ -13,8 +13,8 @@ Icon[\r]
 *.tmp
 tmp/
 
-# Claude Code 로컬 설정 (개인 설정 — 공유 안 함)
-.claude/settings.local.json
+# Claude Code 설정 — 웹 산출물이 아니므로 레포에 올리지 않는다
+.claude/
 
 # 민감 파일 안전망 — 예약 확정서 PDF나 토큰이 실수로 들어오는 것 방지
 *.pdf
