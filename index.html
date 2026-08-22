@@ -13,17 +13,10 @@
 <meta name="theme-color" content="#C1440E">
 <script>
 /* 빌드 버전 — 배포 시 Actions가 커밋 sha/epoch/KST시각을 여기에 주입한다(로컬은 치환 안 됨).
-   캐시 무효화는 커밋 epoch 고정값으로: 같은 배포면 캐시 재사용, 새 배포면 URL이 바뀌어 자동 갱신 */
+   URL에 파라미터를 붙이지 않는다: 캐시 무효화는 서비스워커가 페이지·데이터를 no-store로 받아오고,
+   새 배포가 감지되면 스스로 새로고침하는 방식으로 처리 (아래 서비스워커 섹션 참고) */
 var BUILD = { sha: '__BUILD_SHA__', epoch: '__BUILD_EPOCH__', kst: '__BUILD_KST__' };
 BUILD.local = BUILD.sha.indexOf('BUILD_SHA') > -1;
-(function () {
-  if (BUILD.local) return; // 로컬 개발 중엔 리다이렉트 안 함
-  var p = new URLSearchParams(location.search);
-  if (p.get('v') !== BUILD.epoch) {
-    p.set('v', BUILD.epoch);
-    location.replace(location.pathname + '?' + p.toString() + location.hash);
-  }
-})();
 </script>
 <link rel="stylesheet" href="./leaflet/leaflet.css">
 <style>
@@ -197,10 +190,9 @@ function linkCandidate() {
   return v && /^\d+$/.test(v) ? +v : null;
 }
 
-// 공유용 주소 — 캐시 무효화용 ?v=(커밋 epoch)를 그대로 달고 나가므로 링크를 받은 사람도 최신 버전을 연다
+// 공유용 주소 — 파라미터 없이 깔끔하게. 최신 여부는 서비스워커가 알아서 챙긴다
 function candidateUrl(id) {
-  const v = BUILD.local ? '' : '?v=' + BUILD.epoch;
-  return location.origin + location.pathname + v + '#c=' + id;
+  return location.origin + location.pathname + '#c=' + id;
 }
 
 function focusCandidate(id) {
@@ -462,14 +454,11 @@ function renderVerBar() {
   el.textContent = versionText();
   el.style.color = fresh ? '#C1440E' : '#999';
   el.style.fontWeight = fresh ? '700' : '400';
-  // 새 배포가 감지되면 URL의 ?v를 최신 커밋 epoch로 바꿔 강제 갱신 (세션당 1회만 자동)
-  el.onclick = () => {
-    if (fresh) { location.replace(location.pathname + '?v=' + buildInfo.epoch); return; }
-    location.reload();
-  };
+  el.onclick = () => location.reload();
+  // 서버에 새 배포가 있으면 세션당 1회 자동 새로고침 (서비스워커가 no-store로 최신 HTML을 받아온다)
   if (fresh && !sessionStorage.getItem('reloadedFor' + buildInfo.sha)) {
     sessionStorage.setItem('reloadedFor' + buildInfo.sha, '1');
-    location.replace(location.pathname + '?v=' + buildInfo.epoch);
+    location.reload();
   }
 }
 
@@ -674,8 +663,20 @@ async function syncRemote() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncRemote(); });
 
 // ── 서비스 워커 ───────────────────────────────────────
+// updateViaCache:'none' → sw.js를 HTTP 캐시에서 읽지 않으므로 배포 즉시 새 워커를 발견한다.
+// 새 워커가 제어권을 잡으면(controllerchange) 한 번만 새로고침 → URL 파라미터 없이 최신 화면.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+    .then(reg => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    })
+    .catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (sessionStorage.getItem('swReloaded')) return; // 새로고침 루프 방지
+    sessionStorage.setItem('swReloaded', '1');
+    location.reload();
+  });
 }
 
 const linked = linkTarget();
