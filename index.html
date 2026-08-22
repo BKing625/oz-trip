@@ -42,6 +42,9 @@ BUILD.local = BUILD.sha.indexOf('BUILD_SHA') > -1;
   .pool-bar button.primary { background: #C1440E; color: #fff; font-weight: 600; }
   .place .chk { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
   .place .lnk { border: none; background: transparent; font-size: 15px; padding: 4px; flex-shrink: 0; opacity: .55; }
+  .place .warn { display: inline-block; margin-left: 5px; background: #FDECEA; color: #C1440E; border: 1px solid #F3C4BC;
+                 border-radius: 4px; font-size: 10px; font-weight: 700; padding: 1px 5px; vertical-align: 1px; }
+  .place .warnTxt { color: #C1440E; font-weight: 600; }
   .place.picked { outline: 2px solid #2E7D6B; }
   .day-head { font-size: 13px; font-weight: 700; margin: 10px 2px 6px; color: #555; }
   .place { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
@@ -247,12 +250,13 @@ function filteredPool() {
   return cs;
 }
 
-// 후보 선택(체크박스) — 각자 폰에 저장되고, 복사 버튼으로 카톡에 공유
+// 후보 선택(체크박스) — 폰에 영구 저장하지 않는다. 앱을 닫으면 사라지고, 복사해서 카톡으로 보내는 용도.
+// (sessionStorage라 새 배포로 자동 새로고침이 일어나도 고르던 것은 살아남는다)
 const PICK_KEY = 'aussiePick.v1';
 let poolFilter = 'all'; // 'all' | '국룰' | '강추' | 'picked'
 let picks = new Set();
-try { picks = new Set(JSON.parse(localStorage.getItem(PICK_KEY) || '[]')); } catch (e) {}
-function savePicks() { localStorage.setItem(PICK_KEY, JSON.stringify([...picks])); }
+try { picks = new Set(JSON.parse(sessionStorage.getItem(PICK_KEY) || '[]')); } catch (e) {}
+function savePicks() { try { sessionStorage.setItem(PICK_KEY, JSON.stringify([...picks])); } catch (e) {} }
 
 function pickText() {
   const cs = poolList().filter(c => picks.has(c.id));
@@ -332,7 +336,7 @@ function renderMap() {
   if (currentDay === 'pool') {
     filteredPool().forEach(c => {
       const m = L.marker([c.lat, c.lng], { icon: poolIcon(c) })
-        .bindPopup(`<b>${(REC[c.rec] || {}).mark || ''} ${esc(c.name)}</b><br><small>${esc(c.city)} · ${esc(c.cat)}</small><br>${esc(c.note)}`);
+        .bindPopup(`<b>${(REC[c.rec] || {}).mark || ''} ${esc(c.name)}</b><br><small>${esc(c.city)} · ${esc(c.cat)}</small><br>${c.warn ? '<b style="color:#C1440E">⚠️ ' + esc(c.warn) + '</b><br>' : ''}${esc(c.note)}`);
       layer.addLayer(m);
       markerRefs['p-' + c.id] = m;
       pts.push([c.lat, c.lng]);
@@ -428,7 +432,7 @@ function renderPoolList(el) {
     if (c.rec === '비추천') row.style.opacity = '.6';
     row.innerHTML = `<input type="checkbox" class="chk"${picks.has(c.id) ? ' checked' : ''}>
       <div class="num" style="background:${r.color};font-size:11px">${c.id}</div>
-      <div class="nm">${r.mark} ${esc(c.name)}<small>${esc(c.cat)} · ${esc(c.note)}</small></div>
+      <div class="nm">${r.mark} ${esc(c.name)}${c.warn ? '<span class="warn">주의</span>' : ''}<small>${c.warn ? '<b class="warnTxt">⚠️ ' + esc(c.warn) + '</b><br>' : ''}${esc(c.cat)} · ${esc(c.note)}</small></div>
       <button class="lnk" title="링크 복사">🔗</button>`;
     row.querySelector('.lnk').onclick = ev => {
       ev.stopPropagation();
